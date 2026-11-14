@@ -1,14 +1,122 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Radar: pre-token protocols ranked by implied value</title>
+<title>Token Radar — pre-token protocols ranked by implied value</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<a class="skip" href="#board">Skip to the board</a>
-<main id="board" tabindex="-1" aria-busy="true"></main>
+<header class="top">
+  <p class="eyebrow">Token launch radar &middot; model radar-2</p>
+  <h1>Token Radar</h1>
+  <p class="lede">Which protocol is worth farming next, and what to do about it. Every protocol below
+  records no token yet in the snapshot; each is ranked by the implied value its launch would
+  carry if its record stayed as it is. That value is this radar&rsquo;s own claim &mdash; not a price,
+  and not a prediction that a token will ever launch.</p>
+  <dl class="stats" id="stats"></dl>
+</header>
+
+<main>
+  <section class="card" id="model-card" aria-labelledby="model-h">
+    <h2 id="model-h">How the value is worked out</h2>
+    <p class="formula">implied = TVL &times; 0.25 &times; (1 + clamp(7-day change, &minus;60, +120) &divide; 100 &times; 0.5)
+      &times; (0.6 + min(age, 1095) &divide; 1095 &times; 0.4) &times; (1 + 0.02 &times; min(chains &minus; 1, 5))</p>
+    <p class="fine">TVL is the protocol&rsquo;s locked value in dollars. The 7-day change is its TVL growth over
+    seven days, clamped so one wild week cannot run the board. Age is the days it has been tracked with no
+    token recorded (365 days when DefiLlama gives no listing date). Chains counts the chains it runs on.
+    A protocol whose token already trades is never ranked &mdash; the 24 largest of those are set aside
+    at the bottom, shown with their market caps.</p>
+  </section>
+
+  <section class="card" id="sandbox" aria-labelledby="sandbox-h">
+    <h2 id="sandbox-h">Model sandbox <span class="tag" id="sandbox-tag">radar-2 defaults</span></h2>
+    <p class="fine">Move a weight and the board re-ranks live, using the same formula. The board file
+    itself always keeps the radar-2 weights.</p>
+    <div class="sliders">
+      <label>Base multiple <output id="w-base-out">0.25</output>
+        <input type="range" id="w-base" min="0.10" max="0.50" step="0.01" value="0.25"></label>
+      <label>Growth weight <output id="w-growth-out">0.50</output>
+        <input type="range" id="w-growth" min="0" max="1" step="0.05" value="0.5"></label>
+      <label>Chain breadth weight <output id="w-breadth-out">0.020</output>
+        <input type="range" id="w-breadth" min="0" max="0.05" step="0.005" value="0.02"></label>
+    </div>
+    <button id="sandbox-reset" type="button">Reset to radar-2</button>
+  </section>
+
+  <section class="card" aria-labelledby="chart-h">
+    <h2 id="chart-h">Top 10 by implied value</h2>
+    <div id="chart" class="chart"></div>
+  </section>
+
+  <section class="card" aria-labelledby="board-h">
+    <h2 id="board-h">The board <span class="count" id="board-count"></span></h2>
+    <div class="controls">
+      <label class="grow">Search
+        <input type="search" id="q" placeholder="Name or slug&hellip;" autocomplete="off"></label>
+      <label>Category
+        <select id="f-cat"><option value="">All categories</option></select></label>
+      <label>Chain
+        <select id="f-chain"><option value="">All chains</option></select></label>
+      <label class="check"><input type="checkbox" id="f-watch"> Watchlist only</label>
+      <label class="check"><input type="checkbox" id="f-growing"> Growing only (7d &gt; 0)</label>
+      <label>Sort by
+        <select id="f-sort">
+          <option value="implied">Implied value</option>
+          <option value="tvl">TVL</option>
+          <option value="change">7-day change</option>
+          <option value="age">Age (days listed)</option>
+          <option value="name">Name A&ndash;Z</option>
+        </select></label>
+      <button id="f-reset" type="button">Clear filters</button>
+    </div>
+    <p class="legend">Signals: <span class="sig sig-watch">WATCHLIST</span> on the house watchlist &middot;
+      <span class="sig sig-fast">FAST</span> 7-day growth of +20% or more &middot;
+      <span class="sig sig-down">DOWN</span> 7-day change of &minus;10% or worse &middot;
+      <span class="sig sig-new">NEW</span> listed under 180 days ago &middot;
+      <span class="sig sig-multi">MULTI</span> on 5 or more chains. Click a row for its detail and farm plan.</p>
+    <div class="table-wrap">
+      <table id="board">
+        <thead><tr>
+          <th data-sort="implied">#</th><th>Protocol</th><th>Category</th><th>Chains</th>
+          <th class="num">TVL</th><th class="num">7d</th><th class="num">Age</th>
+          <th class="num">Implied value</th><th>Signals</th>
+        </tr></thead>
+        <tbody id="board-body"></tbody>
+      </table>
+    </div>
+    <nav class="pager" aria-label="Board pages">
+      <button id="pg-prev" type="button">&larr; Previous</button>
+      <span id="pg-info"></span>
+      <button id="pg-next" type="button">Next &rarr;</button>
+    </nav>
+  </section>
+
+  <section class="card detail" id="detail" hidden aria-labelledby="detail-h">
+    <h2 id="detail-h">Protocol detail</h2>
+    <div id="detail-body"></div>
+  </section>
+
+  <section class="card" aria-labelledby="live-h">
+    <h2 id="live-h">Set aside: token already trades</h2>
+    <p class="fine">The 24 largest protocols whose token already has a market cap. They are shown for
+    contrast and are never ranked on this board, because the board ranks launches that have not happened.</p>
+    <div class="table-wrap">
+      <table id="live">
+        <thead><tr><th>Protocol</th><th>Category</th><th>Chains</th>
+          <th class="num">TVL</th><th class="num">7d</th><th class="num">Market cap</th></tr></thead>
+        <tbody id="live-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Snapshot: DefiLlama protocols at or above $5,000,000 TVL, fetched 14 November 2026.
+  Watchlist floor $50,000,000. &ldquo;Records no token&rdquo; means the snapshot carries no token for the
+  protocol &mdash; it is not proof the protocol has none. Farm plans are a starting point: check the
+  protocol&rsquo;s own pages before you move funds, and never pay anyone to claim for you.</p>
+</footer>
 <script src="../data.js"></script>
 <script src="app.js"></script>
 </body>
