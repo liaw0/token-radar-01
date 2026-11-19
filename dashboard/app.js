@@ -62,6 +62,169 @@
     return "falling";
   }
 
+  /* ---------- why this rank ---------- */
+  /* The implied value split into its four parts, so the detail view can say in
+     plain words what drives a protocol's rank. The parts are sequential: base,
+     then what growth adds, then what maturity adds, then what breadth adds —
+     they always add up to the implied value shown. Maturity can be negative:
+     a young protocol is still held back by the maturity factor until it has
+     run longer with no token. */
+  function whyParts(r) {
+    var calc = impliedOf(r, sandboxOn() ? weights : BASE);
+    var base = r.tvl_usd * (sandboxOn() ? weights.base : BASE.base);
+    var afterGrowth = base * calc.growth;
+    var afterMaturity = afterGrowth * calc.maturity;
+    var value = sandboxOn() ? calc.value : r.implied_value_usd;
+    return {
+      base: base,
+      growth: afterGrowth - base,
+      maturity: afterMaturity - afterGrowth,
+      breadth: value - afterMaturity,
+      value: value,
+      growthMult: calc.growth,
+      maturityMult: calc.maturity,
+      breadthMult: calc.breadth
+    };
+  }
+  function whyLines(r, parts) {
+    var out = [];
+    var chains = (r.chains || []).length;
+    out.push("TVL of " + moneyFull(r.tvl_usd) + " is the base: at " +
+      (sandboxOn() ? weights.base : BASE.base) + "× it is worth " + moneyFull(parts.base) +
+      " before any adjustment.");
+    if (r.change_7d == null) {
+      out.push("No 7-day change is reported, so growth neither adds nor takes away.");
+    } else if (parts.growth > 0) {
+      out.push("A " + pct(r.change_7d) + " week lifts it by " + moneyFull(parts.growth) +
+        " (growth ×" + parts.growthMult.toFixed(3) + ").");
+    } else if (parts.growth < 0) {
+      out.push("A " + pct(r.change_7d) + " week drags it down by " + moneyFull(-parts.growth) +
+        " (growth ×" + parts.growthMult.toFixed(3) + ").");
+    } else {
+      out.push("A flat week leaves the base almost untouched (growth ×1.000).");
+    }
+    if (r.age_days == null) {
+      out.push("No listing date is given, so the model assumes 365 days with no token, " +
+        "and maturity still holds it back by " + moneyFull(-parts.maturity) +
+        " (maturity ×" + parts.maturityMult.toFixed(3) + ").");
+    } else if (parts.maturity < 0) {
+      out.push(r.age_days + " days listed with no token, so maturity still holds it back by " +
+        moneyFull(-parts.maturity) + " (maturity ×" + parts.maturityMult.toFixed(3) + ").");
+    } else {
+      out.push(r.age_days + " days listed with no token: at full maturity it holds nothing back.");
+    }
+    if (chains <= 1) {
+      out.push("On a single chain, breadth adds nothing.");
+    } else {
+      out.push("Running on " + chains + " chains adds " + moneyFull(parts.breadth) +
+        " (breadth ×" + parts.breadthMult.toFixed(3) + ").");
+    }
+    out.push("Momentum " + momentumOf(r) + " / 100 puts it in the " + tierOf(r) +
+      " tier, and it is " + (r.watchlist ? "on the house watchlist." : "an early find below the $50M floor."));
+    return out;
+  }
+  /* What would move this protocol up: the implied value if its 7-day change were
+     +20% instead, and if it ran on one more chain — with the rank that value
+     would earn on today's board. Both are the same formula, re-applied. */
+  function whatIf(r) {
+    var w = sandboxOn() ? weights : BASE;
+    var growth20 = impliedOf({ tvl_usd: r.tvl_usd, change_7d: 20, age_days: r.age_days, chains: r.chains || [] }, w).value;
+    var oneMoreChain = impliedOf({ tvl_usd: r.tvl_usd, change_7d: r.change_7d, age_days: r.age_days, chains: (r.chains || []).concat(["x"]) }, w).value;
+    function rankFor(value) {
+      var above = 0;
+      ROWS.forEach(function (x) { if (shownImplied(x) > value) above += 1; });
+      return above + 1;
+    }
+    var out = [];
+    if (growth20 > shownImplied(r)) {
+      out.push("If its 7-day change were +20% instead of " + pct(r.change_7d) + ", its implied value would be " +
+        money(growth20) + " — rank " + rankFor(growth20) + " on today's board.");
+    }
+    if (oneMoreChain > shownImplied(r)) {
+      out.push("One more chain would take it to " + money(oneMoreChain) +
+        " — rank " + rankFor(oneMoreChain) + " on today's board.");
+    }
+    if (!out.length) out.push("Nothing in its own figures would move it up: it is already at the top of what its TVL supports.");
+    return out;
+  }
+  function whyRankHtml(r) {
+    var parts = whyParts(r);
+    var segs = [
+      ["base", parts.base, "var(--accent)"],
+      ["growth", parts.growth, "var(--green)"],
+      ["maturity", parts.maturity, "var(--blue)"],
+      ["breadth", parts.breadth, "var(--violet)"]
+    ];
+    var bar = segs.map(function (s) {
+      var w = parts.value > 0 ? Math.max(0, (s[1] / parts.value) * 100) : 0;
+      return '<span class="why-seg" title="' + s[0] + " " + esc(moneyFull(s[1])) +
+        '" style="width:' + w.toFixed(1) + "%;background:" + s[2] + '"></span>';
+    }).join("");
+    var lines = whyLines(r, parts).map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("");
+    var next = whatIf(r).map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("");
+    return "<h4>Why this rank</h4>" +
+      '<div class="why-bar" role="img" aria-label="Implied value split into base, growth, maturity and breadth">' + bar + "</div>" +
+      '<p class="why-legend"><span class="why-dot" style="background:var(--accent)"></span>base ' +
+      esc(money(parts.base)) + ' · <span class="why-dot" style="background:var(--green)"></span>growth ' +
+      esc(flowMoney(parts.growth)) + ' · <span class="why-dot" style="background:var(--blue)"></span>maturity ' +
+      esc(flowMoney(parts.maturity)) + ' · <span class="why-dot" style="background:var(--violet)"></span>breadth ' +
+      esc(flowMoney(parts.breadth)) + "</p>" +
+      '<ul class="why">' + lines + "</ul>" +
+      '<h4>What would move it up</h4>' +
+      '<ul class="why">' + next + "</ul>";
+  }
+
+  /* ---------- comparables ---------- */
+  /* The three most similar protocols: same category first, nearest by TVL, then
+     the nearest by TVL overall when the category runs out. Similarity is the
+     absolute gap in log TVL, so a $10M protocol compares with $8M and $12M
+     neighbours, not with a $5B giant. */
+  function comparablesOf(r) {
+    var logTvl = Math.log(Math.max(1, r.tvl_usd));
+    function gap(x) { return Math.abs(Math.log(Math.max(1, x.tvl_usd)) - logTvl); }
+    var same = ROWS.filter(function (x) {
+      return x.slug !== r.slug && x.category != null && r.category != null && x.category === r.category;
+    }).sort(function (a, b) { return gap(a) - gap(b) || a.rank - b.rank; });
+    var picked = same.slice(0, 3);
+    if (picked.length < 3) {
+      var rest = ROWS.filter(function (x) {
+        return x.slug !== r.slug && picked.indexOf(x) < 0;
+      }).sort(function (a, b) { return gap(a) - gap(b) || a.rank - b.rank; });
+      picked = picked.concat(rest.slice(0, 3 - picked.length));
+    }
+    return picked;
+  }
+  function comparablesHtml(r) {
+    var list = comparablesOf(r);
+    if (!list.length) return "";
+    var rows = list.map(function (x) {
+      var diff = x.implied_value_usd - r.implied_value_usd;
+      var diffTxt = diff > 0 ? "+" + money(diff) + " vs this one" :
+        diff < 0 ? "−" + money(-diff) + " vs this one" : "same value";
+      return '<tr data-slug="' + esc(x.slug) + '"><td class="num">#' + x.rank + "</td>" +
+        '<td><span class="nm">' + esc(x.name) + '</span><span class="sub">' + esc(x.slug) + "</span></td>" +
+        "<td>" + esc(x.category || "—") + "</td>" +
+        '<td class="num">' + esc(money(x.tvl_usd)) + "</td>" +
+        changeCell(x.change_7d) +
+        '<td class="num"><strong>' + esc(money(x.implied_value_usd)) + "</strong></td>" +
+        '<td class="num">' + esc(diffTxt) + "</td></tr>";
+    }).join("");
+    var nearest = list[0];
+    var gapLine = nearest && nearest.implied_value_usd > r.implied_value_usd
+      ? "To pass its nearest comparable it needs " + money(nearest.implied_value_usd - r.implied_value_usd) +
+        " more implied value — about " +
+        Math.round(((nearest.implied_value_usd / Math.max(1, r.implied_value_usd)) - 1) * 100) +
+        "% more TVL at the same growth."
+      : "It already beats its nearest comparable on implied value.";
+    return "<h4>Comparables — same category, nearest TVL</h4>" +
+      '<p class="fine">The ranking is comparative: these are the protocols this one has to beat. ' +
+      "Same category first, then the nearest TVL overall. " + esc(gapLine) + "</p>" +
+      '<div class="table-wrap"><table class="comp-mini"><thead><tr><th class="num">#</th><th>Protocol</th>' +
+      "<th>Category</th>" + '<th class="num">TVL</th><th class="num">7d</th>' +
+      '<th class="num">Implied value</th><th class="num">Gap</th></tr></thead><tbody>' + rows +
+      "</tbody></table></div>";
+  }
+
   /* The radar-2 formula, re-applied with whatever weights the sandbox holds.
      age_days is the days listed with no token recorded (365 when unlisted). */
   function impliedOf(r, w) {
@@ -320,6 +483,138 @@
     $("compare-body").innerHTML = head + body + steps + "</tbody></table>";
   }
 
+  /* ---------- farm plan ---------- */
+  var plan = []; /* slugs queued for farming, at most 5 */
+  var PLAN_MAX = 5;
+  /* The capital one farm position needs, from the protocol's own TVL — the same
+     tiers the model's farm plans use. */
+  function capitalTierOf(r) {
+    if (r.tvl_usd >= 5e9) return 250;
+    if (r.tvl_usd >= 1e9) return 150;
+    if (r.tvl_usd >= 1e8) return 100;
+    return 50;
+  }
+  /* How long to hold, from the protocol's age: younger protocols get a longer
+     qualifying window. */
+  function holdDaysOf(r) {
+    var age = r.age_days;
+    if (age == null) return 30;
+    if (age < 180) return 60;
+    if (age < 365) return 45;
+    return 30;
+  }
+  /* One protocol's effort in one line: capital, weekly time and hold window. */
+  function effortNote(r) {
+    return "$" + capitalTierOf(r) + " capital · about 10 min a week · hold " + holdDaysOf(r) + " days";
+  }
+  function planRows() {
+    return plan.map(function (slug) {
+      var found = null;
+      ROWS.forEach(function (r) { if (r.slug === slug) found = r; });
+      return found;
+    }).filter(function (r) { return r !== null; })
+      .sort(function (a, b) { return a.rank - b.rank; });
+  }
+  function planInQueue(slug) { return plan.indexOf(slug) >= 0; }
+  function togglePlan(slug) {
+    var at = plan.indexOf(slug);
+    if (at >= 0) {
+      plan.splice(at, 1);
+    } else {
+      if (plan.length >= PLAN_MAX) plan.shift();
+      plan.push(slug);
+    }
+    syncPlanHash();
+    renderPlan();
+    if (openSlug) openDetailKeep(openSlug);
+  }
+  function planShareUrl() {
+    return window.location.href.split("#")[0] + "#plan=" + plan.join(",");
+  }
+  function syncPlanHash() {
+    if (openSlug) return;
+    var hash = plan.length ? "#plan=" + plan.join(",") : "";
+    history.replaceState(null, "", window.location.pathname + window.location.search + hash);
+  }
+  function copyPlanLink() {
+    var url = planShareUrl();
+    var done = function () {
+      $("plan-copy").textContent = "Link copied";
+      setTimeout(function () { $("plan-copy").textContent = "Copy share link"; }, 2000);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done, function () { planLinkFallback(url, done); });
+    } else {
+      planLinkFallback(url, done);
+    }
+  }
+  function planLinkFallback(url, done) {
+    var box = document.createElement("textarea");
+    box.value = url;
+    document.body.appendChild(box);
+    box.select();
+    try { document.execCommand("copy"); } catch (e) { /* the link stays visible below */ }
+    document.body.removeChild(box);
+    done();
+  }
+  function planTop3() {
+    plan = ROWS.slice().sort(function (a, b) { return a.rank - b.rank; })
+      .slice(0, 3).map(function (r) { return r.slug; });
+    syncPlanHash();
+    renderPlan();
+    $("plan-card").scrollIntoView({ behavior: "auto", block: "start" });
+  }
+  function renderPlan() {
+    var picked = planRows();
+    $("plan-count").textContent = picked.length ? picked.length + " of " + PLAN_MAX + " queued" : "nothing queued yet";
+    if (!picked.length) {
+      $("plan-body").innerHTML = '<p class="fine">Open any protocol and press “Add to farm plan”, or queue the top 3 below. ' +
+        "The plan orders itself by implied value, so the first item is the one to farm first.</p>";
+      return;
+    }
+    var totalCapital = 0;
+    picked.forEach(function (r) { totalCapital += capitalTierOf(r); });
+    var longestHold = Math.max.apply(null, picked.map(holdDaysOf));
+    var totalImplied = 0;
+    picked.forEach(function (r) { totalImplied += shownImplied(r); });
+    var items = picked.map(function (r, i) {
+      var steps = r.farm_steps || [];
+      var weekly = steps.length > 2 ? steps[2] : "";
+      return '<article class="plan-item"><header><span class="plan-step">' + (i + 1) + "</span>" +
+        '<span class="plan-name">' + esc(r.name) + ' <span class="sub">#' + r.rank + " · " +
+        esc(money(shownImplied(r))) + "</span></span>" +
+        '<span class="plan-effort">' + esc(effortNote(r)) + "</span>" +
+        '<button type="button" class="ghost plan-remove" data-slug="' + esc(r.slug) + '">Remove</button></header>' +
+        '<ol class="farm plan-farm">' + steps.slice(0, 3).map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ol>" +
+        (steps.length > 3 ? '<p class="fine">' + (steps.length - 3) + " more steps in the detail view — " +
+          '<a href="#detail=' + esc(r.slug) + '" class="plan-open" data-slug="' + esc(r.slug) + '">open ' + esc(r.name) + "</a>.</p>" : "") +
+        (weekly ? '<label class="plan-week"><input type="checkbox" class="plan-done"> This week: ' + esc(weekly) + "</label>" : "") +
+        "</article>";
+    }).join("");
+    $("plan-body").innerHTML =
+      '<p class="plan-total">Queue total: <strong>$' + totalCapital + ' capital</strong> · combined implied value ' +
+      esc(money(totalImplied)) + " · about " + (picked.length * 10) + " min a week across " + picked.length +
+      " protocol" + (picked.length === 1 ? "" : "s") + " · longest hold " + longestHold + " days.</p>" + items;
+    Array.prototype.forEach.call($("plan-body").querySelectorAll(".plan-remove"), function (btn) {
+      btn.addEventListener("click", function () { togglePlan(btn.getAttribute("data-slug")); });
+    });
+    Array.prototype.forEach.call($("plan-body").querySelectorAll(".plan-open"), function (a) {
+      a.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        openDetail(a.getAttribute("data-slug"));
+      });
+    });
+  }
+  function bindPlan() {
+    $("plan-top3").addEventListener("click", planTop3);
+    $("plan-copy").addEventListener("click", copyPlanLink);
+    $("plan-clear").addEventListener("click", function () {
+      plan = [];
+      syncPlanHash();
+      renderPlan();
+    });
+  }
+
   /* ---------- detail ---------- */
   function renderLive() {
     $("live-body").innerHTML = LIVE.map(function (r) {
@@ -360,14 +655,22 @@
       "<small>" + (sandboxOn() ? "sandbox weights" : "radar-3 weights") + "</small></dd></div>" +
       "</dl>" +
       '<p class="math">' + esc(math) + "</p>" +
+      whyRankHtml(r) +
+      comparablesHtml(r) +
       "<h4>How to farm it — six steps</h4>" +
       '<ol class="farm">' + steps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ol>" +
       '<p class="fine">The plan is generic on purpose: the snapshot carries no points program, so each step ' +
       "says what to do, what it costs and how long it takes, and leaves the protocol's own pages as the " +
       "check before any funds move.</p>" +
-      '<p><button type="button" id="detail-close" class="ghost">Close detail</button></p>';
+      '<p><button type="button" id="detail-plan" class="plan-add">' +
+      (planInQueue(r.slug) ? "Remove from farm plan" : "Add to farm plan") + "</button> " +
+      '<button type="button" id="detail-close" class="ghost">Close detail</button></p>';
     $("detail").hidden = false;
     $("detail-close").addEventListener("click", closeDetail);
+    $("detail-plan").addEventListener("click", function () { togglePlan(r.slug); });
+    Array.prototype.forEach.call($("detail-body").querySelectorAll(".comp-mini tr[data-slug]"), function (tr) {
+      tr.addEventListener("click", function () { openDetail(tr.getAttribute("data-slug")); });
+    });
     if (window.location.hash !== "#detail=" + slug) history.replaceState(null, "", "#detail=" + slug);
     renderBoard();
     $("detail").scrollIntoView({ behavior: "auto", block: "start" });
@@ -463,7 +766,9 @@
   renderBoard();
   renderCompare();
   renderLive();
+  renderPlan();
   bind();
+  bindPlan();
 
   /* Deep links: #detail=<slug> opens one protocol, #growing=1 filters to growers,
      #compare=<slug>,<slug>,<slug> picks the comparison — and a compare link scrolls to it. */
@@ -486,6 +791,13 @@
     state.page = 0;
     renderBoard();
   }
+  if (params.plan) {
+    plan = params.plan.split(",").filter(function (slug) {
+      return ROWS.some(function (r) { return r.slug === slug; });
+    }).slice(0, PLAN_MAX);
+    renderPlan();
+  }
+  if (params.plan) $("plan-card").scrollIntoView({ behavior: "auto", block: "start" });
   if (params.compare) $("compare-card").scrollIntoView({ behavior: "auto", block: "start" });
   var m = hash.match(/(?:^|&)detail=([\w-]+)/);
   if (m) openDetail(m[1]);

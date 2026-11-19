@@ -20,6 +20,13 @@ they may one day issue, and shows a reader how to farm each one.
   a detail view for every protocol with the model's own inputs, its growth signals and
   a six-step farm plan with costs and times, and a model sandbox that re-ranks the
   board live when you move a constant.
+- The detail view also explains itself: a "Why this rank" panel splits the implied
+  value into base, growth, maturity and breadth, in plain words, with what would move
+  the protocol up; and a comparables table shows the three nearest protocols by
+  category and TVL, with the gap to beat.
+- A farm plan queues up to five protocols (from any detail view, or the top three at
+  once), orders them by implied value with each one's first steps, capital, weekly
+  time and hold window, and shares the queue through the page address (#plan=...).
 
 ## The model (radar-3)
 

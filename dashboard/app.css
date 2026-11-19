@@ -206,3 +206,27 @@ table.compare td { vertical-align: top; overflow-wrap: break-word; white-space: 
 table.compare .sub { display: block; color: var(--faint); font-size: 12px; font-weight: 400; }
 .cmp-farm { margin: 0; padding-left: 18px; }
 .cmp-farm li { margin-bottom: 4px; font-size: 12.5px; }
+
+/* radar-4: why-this-rank, comparables and the farm plan. */
+.why-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--card-2); margin: 4px 0 8px; }
+.why-seg { display: block; height: 100%; }
+.why-legend { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+.why-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: 0; }
+ul.why { margin: 0 0 6px; padding-left: 20px; color: var(--ink); font-size: 14px; }
+ul.why li { margin-bottom: 6px; }
+table.comp-mini { font-size: 13px; }
+table.comp-mini tbody tr { cursor: pointer; }
+.plan-add { margin-right: 8px; }
+.plan-total { margin: 0 0 12px; color: var(--muted); font-size: 13.5px; }
+.plan-total strong { color: var(--ink); }
+.plan-item { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.plan-item header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.plan-step { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 800; flex: none; }
+.plan-name { font-weight: 700; font-size: 15px; }
+.plan-name .sub { display: inline; color: var(--muted); font-weight: 400; }
+.plan-effort { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+.plan-remove { padding: 4px 10px; font-size: 12.5px; }
+.plan-farm { margin: 0; }
+.plan-farm li { margin-bottom: 5px; font-size: 13.5px; }
+.plan-week { display: block; margin-top: 8px; color: var(--muted); font-size: 13px; }
+.plan-week input[type="checkbox"] { margin-right: 6px; vertical-align: -2px; }
