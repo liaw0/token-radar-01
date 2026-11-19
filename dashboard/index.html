@@ -8,7 +8,7 @@
 </head>
 <body>
 <header class="top">
-  <p class="eyebrow">Token launch radar &middot; model radar-2</p>
+  <p class="eyebrow">Token launch radar &middot; model radar-3</p>
   <h1>Token Radar</h1>
   <p class="lede">Which protocol is worth farming next, and what to do about it. Every protocol below
   records no token yet in the snapshot; each is ranked by the implied value its launch would
@@ -26,13 +26,15 @@
     seven days, clamped so one wild week cannot run the board. Age is the days it has been tracked with no
     token recorded (365 days when DefiLlama gives no listing date). Chains counts the chains it runs on.
     A protocol whose token already trades is never ranked &mdash; the 24 largest of those are set aside
-    at the bottom, shown with their market caps.</p>
+    at the bottom, shown with their market caps. The same 7-day change also drives the growth signals on
+    every row: the dollars the TVL gained or lost in seven days, a momentum index from 0 to 100, and a
+    tier from Surging (+20% or more) to Falling (&minus;10% or worse).</p>
   </section>
 
   <section class="card" id="sandbox" aria-labelledby="sandbox-h">
-    <h2 id="sandbox-h">Model sandbox <span class="tag" id="sandbox-tag">radar-2 defaults</span></h2>
+    <h2 id="sandbox-h">Model sandbox <span class="tag" id="sandbox-tag">radar-3 defaults</span></h2>
     <p class="fine">Move a weight and the board re-ranks live, using the same formula. The board file
-    itself always keeps the radar-2 weights.</p>
+    itself always keeps the radar-3 weights.</p>
     <div class="sliders">
       <label>Base multiple <output id="w-base-out">0.25</output>
         <input type="range" id="w-base" min="0.10" max="0.50" step="0.01" value="0.25"></label>
@@ -41,7 +43,15 @@
       <label>Chain breadth weight <output id="w-breadth-out">0.020</output>
         <input type="range" id="w-breadth" min="0" max="0.05" step="0.005" value="0.02"></label>
     </div>
-    <button id="sandbox-reset" type="button">Reset to radar-2</button>
+    <button id="sandbox-reset" type="button">Reset to radar-3</button>
+  </section>
+
+  <section class="card" aria-labelledby="movers-h">
+    <h2 id="movers-h">Fastest movers <span class="count">by 7-day momentum</span></h2>
+    <p class="fine">The eight board rows whose TVL is moving fastest this week — momentum is the clamped
+    7-day change on a 0&ndash;100 scale, and the flow is the dollars the TVL actually gained or lost
+    in seven days. A fast mover is where the farming window is opening now, not last quarter.</p>
+    <div id="movers" class="movers"></div>
   </section>
 
   <section class="card" aria-labelledby="chart-h">
@@ -63,6 +73,8 @@
       <label>Sort by
         <select id="f-sort">
           <option value="implied">Implied value</option>
+          <option value="momentum">Momentum</option>
+          <option value="flow">7-day flow</option>
           <option value="tvl">TVL</option>
           <option value="change">7-day change</option>
           <option value="age">Age (days listed)</option>
@@ -74,12 +86,13 @@
       <span class="sig sig-fast">FAST</span> 7-day growth of +20% or more &middot;
       <span class="sig sig-down">DOWN</span> 7-day change of &minus;10% or worse &middot;
       <span class="sig sig-new">NEW</span> listed under 180 days ago &middot;
-      <span class="sig sig-multi">MULTI</span> on 5 or more chains. Click a row for its detail and farm plan.</p>
+      <span class="sig sig-multi">MULTI</span> on 5 or more chains. Tick a row&rsquo;s box to compare it
+      with up to two others below. Click a row for its detail and farm plan.</p>
     <div class="table-wrap">
       <table id="board">
         <thead><tr>
-          <th data-sort="implied">#</th><th>Protocol</th><th>Category</th><th>Chains</th>
-          <th class="num">TVL</th><th class="num">7d</th><th class="num">Age</th>
+          <th class="cmp-col" title="Compare"></th><th data-sort="implied">#</th><th>Protocol</th><th>Category</th><th>Chains</th>
+          <th class="num">TVL</th><th class="num">7d</th><th class="num">Momentum</th><th class="num">7d flow</th>
           <th class="num">Implied value</th><th>Signals</th>
         </tr></thead>
         <tbody id="board-body"></tbody>
@@ -90,6 +103,18 @@
       <span id="pg-info"></span>
       <button id="pg-next" type="button">Next &rarr;</button>
     </nav>
+  </section>
+
+  <section class="card" id="compare-card" aria-labelledby="compare-h">
+    <h2 id="compare-h">Compare protocols <span class="count" id="compare-count"></span></h2>
+    <p class="fine">Tick up to three rows on the board — or start from the top three — and compare them
+    side by side: implied value, TVL, growth and farm steps at a glance. The question is which one to
+    farm next, and the comparison is the answer.</p>
+    <div class="compare-actions">
+      <button id="cmp-top3" type="button">Compare top 3</button>
+      <button id="cmp-clear" type="button" class="ghost">Clear</button>
+    </div>
+    <div class="table-wrap" id="compare-body"></div>
   </section>
 
   <section class="card detail" id="detail" hidden aria-labelledby="detail-h">

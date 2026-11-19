@@ -1,4 +1,4 @@
-// Token Radar — entrypoint (model radar-2).
+// Token Radar — entrypoint (model radar-3).
 // Reads the sealed DefiLlama snapshot, scores every pre-token protocol with the
 // radar-2 model in lib/model.ts, and writes the ranked board, the dashboard
 // data, the dashboard files, the screenshots and the dossier into the output
@@ -57,6 +57,9 @@ function main() {
     growth_multiplier: row.model.growth_multiplier,
     maturity_multiplier: row.model.maturity_multiplier,
     breadth_multiplier: row.model.breadth_multiplier,
+    flow_7d_usd: row.model.flow_7d_usd,
+    growth_tier: row.model.growth_tier,
+    momentum: row.model.momentum,
     watchlist: watchlist.has(row.slug),
     farm_steps: row.farm_steps,
   }));

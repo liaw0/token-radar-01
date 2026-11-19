@@ -157,3 +157,52 @@ footer p { margin: 0; max-width: 78ch; }
   .sliders, .kv { grid-template-columns: 1fr; }
   .bar-row { grid-template-columns: 22px 130px 1fr 84px; }
 }
+
+/* radar-3: growth signals and the comparison view. */
+.cmp-col { width: 30px; text-align: center; }
+.cmp-col input[type="checkbox"] { cursor: pointer; }
+.mom-cell { white-space: nowrap; }
+.mom-track {
+  display: inline-block;
+  width: 54px;
+  height: 8px;
+  margin-right: 7px;
+  background: var(--card-2);
+  border-radius: 999px;
+  overflow: hidden;
+  vertical-align: 1px;
+}
+.mom-fill { height: 100%; border-radius: 999px; }
+.tier-surging { background: var(--green); }
+.tier-growing { background: var(--accent); }
+.tier-flat { background: var(--blue); }
+.tier-cooling { background: var(--amber); }
+.tier-falling { background: var(--red); }
+.movers { display: flex; flex-direction: column; gap: 7px; }
+.mover {
+  display: grid;
+  grid-template-columns: 1fr 170px 130px 52px 130px;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 12px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.mover:hover { border-color: var(--accent); }
+.mover-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mover-rank { color: var(--muted); font-variant-numeric: tabular-nums; }
+.mover .mom-track { width: 100%; margin: 0; }
+.mover-num { font-weight: 750; font-variant-numeric: tabular-nums; text-align: right; }
+.mover-num small, .mover-flow small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
+.mover-flow { text-align: right; font-variant-numeric: tabular-nums; font-weight: 650; }
+.compare-actions { display: flex; gap: 10px; margin-bottom: 8px; }
+table.compare { font-size: 13.5px; table-layout: fixed; width: 100%; }
+table.compare th:first-child { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; width: 118px; }
+table.compare td { vertical-align: top; overflow-wrap: break-word; white-space: normal; }
+.cmp-left { display: block; text-align: left; }
+table.compare .sub { display: block; color: var(--faint); font-size: 12px; font-weight: 400; }
+.cmp-farm { margin: 0; padding-left: 18px; }
+.cmp-farm li { margin-bottom: 4px; font-size: 12.5px; }

@@ -15,6 +15,7 @@
 
   var state = { q: "", cat: "", chain: "", watch: false, growing: false, sort: "implied", page: 0 };
   var openSlug = null;
+  var compare = []; /* slugs picked for the side-by-side view, at most 3 */
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -33,11 +34,33 @@
     if (v == null || !isFinite(v)) return "—";
     return "$" + Math.round(v).toLocaleString("en-US");
   }
+  /* A signed dollar figure: the 7-day flow, with + for money in and − for money out. */
+  function flowMoney(v) {
+    if (v == null || !isFinite(v)) return "—";
+    var sign = v > 0 ? "+" : v < 0 ? "−" : "";
+    return sign + money(Math.abs(v));
+  }
   function pct(v) {
     if (v == null || !isFinite(v)) return "—";
     return (v > 0 ? "+" : "") + v.toFixed(1) + "%";
   }
   function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+  /* A row's momentum, 0–100 from its clamped 7-day change; data.js carries it, this is the fallback. */
+  function momentumOf(r) {
+    if (r.momentum != null && isFinite(r.momentum)) return r.momentum;
+    var g = r.change_7d == null ? 0 : clamp(r.change_7d, -60, 120);
+    return Math.round(((g + 60) / 180) * 100);
+  }
+  function tierOf(r) {
+    if (r.growth_tier) return r.growth_tier;
+    var c = r.change_7d;
+    if (c == null) return "flat";
+    if (c >= 20) return "surging";
+    if (c >= 5) return "growing";
+    if (c > -5) return "flat";
+    if (c > -10) return "cooling";
+    return "falling";
+  }
 
   /* The radar-2 formula, re-applied with whatever weights the sandbox holds.
      age_days is the days listed with no token recorded (365 when unlisted). */
@@ -87,10 +110,13 @@
   /* ---------- stats + filter options ---------- */
   function renderStats() {
     var el = $("stats");
+    var trend = D.trend || {};
     var cells = [
       [ROWS.length, "ranked pre-token"],
       [D.watchlist_size || 0, "on the watchlist"],
       [D.early_size || 0, "early finds below the floor"],
+      [trend.surging != null ? trend.surging : "—", "surging (+20% or more in 7d)"],
+      [trend.total_flow_7d_usd != null ? flowMoney(trend.total_flow_7d_usd) : "—", "net 7-day TVL flow"],
       [LIVE.length, "live tokens set aside"],
       [money(D.floor_usd), "watchlist floor (TVL)"]
     ];
@@ -128,6 +154,8 @@
     var by = state.sort;
     list.sort(function (a, b) {
       if (by === "implied") return shownImplied(b) - shownImplied(a);
+      if (by === "momentum") return momentumOf(b) - momentumOf(a) || shownImplied(b) - shownImplied(a);
+      if (by === "flow") return (b.flow_7d_usd || 0) - (a.flow_7d_usd || 0);
       if (by === "tvl") return b.tvl_usd - a.tvl_usd;
       if (by === "change") return (b.change_7d == null ? -1e9 : b.change_7d) - (a.change_7d == null ? -1e9 : a.change_7d);
       if (by === "age") return (b.age_days || 0) - (a.age_days || 0);
@@ -151,6 +179,30 @@
     }).join("");
   }
 
+  /* ---------- fastest movers ---------- */
+  function renderMovers() {
+    var leaders = D.growth_leaders || [];
+    if (!leaders.length) {
+      leaders = ROWS.slice().sort(function (a, b) {
+        return momentumOf(b) - momentumOf(a) || (b.flow_7d_usd || 0) - (a.flow_7d_usd || 0);
+      }).slice(0, 8).map(function (r) {
+        return { rank: r.rank, slug: r.slug, name: r.name, tvl_usd: r.tvl_usd, change_7d: r.change_7d, flow_7d_usd: r.flow_7d_usd || 0, momentum: momentumOf(r), implied_value_usd: r.implied_value_usd };
+      });
+    }
+    $("movers").innerHTML = leaders.map(function (m) {
+      var tier = tierOf(m);
+      return '<div class="mover" data-slug="' + esc(m.slug) + '">' +
+        '<span class="mover-name">' + esc(m.name) + '</span>' +
+        '<span class="mover-rank">#' + m.rank + " · " + esc(money(m.implied_value_usd)) + "</span>" +
+        '<span class="mom-track"><span class="mom-fill tier-' + tier + '" style="display:block;width:' + m.momentum + '%"></span></span>' +
+        '<span class="mover-num">' + m.momentum + '<small>momentum</small></span>' +
+        '<span class="mover-flow ' + (m.flow_7d_usd > 0 ? "pos" : m.flow_7d_usd < 0 ? "neg" : "") + '">' + esc(flowMoney(m.flow_7d_usd)) + "<small>7d flow · " + esc(pct(m.change_7d)) + "</small></span></div>";
+    }).join("");
+    Array.prototype.forEach.call($("movers").querySelectorAll(".mover"), function (el) {
+      el.addEventListener("click", function () { openDetail(el.getAttribute("data-slug")); });
+    });
+  }
+
   /* ---------- board ---------- */
   function renderBoard() {
     var list = filteredRows();
@@ -162,20 +214,26 @@
     var active = sandboxOn();
     var body = $("board-body");
     if (!slice.length) {
-      body.innerHTML = '<tr><td colspan="9">Nothing matches these filters. Clear them to see the full board.</td></tr>';
+      body.innerHTML = '<tr><td colspan="11">Nothing matches these filters. Clear them to see the full board.</td></tr>';
     } else {
       body.innerHTML = slice.map(function (r, i) {
         var pos = start + i + 1;
         var shown = active ? pos : r.rank;
         var cls = r.slug === openSlug ? ' class="open"' : "";
+        var mom = momentumOf(r);
+        var flow = r.flow_7d_usd == null ? 0 : r.flow_7d_usd;
+        var flowCls = flow > 0 ? "pos" : flow < 0 ? "neg" : "";
+        var checked = compare.indexOf(r.slug) >= 0 ? " checked" : "";
         return "<tr data-slug=\"" + esc(r.slug) + "\"" + cls + ">" +
+          '<td class="cmp-col"><input type="checkbox" class="cmp" data-slug="' + esc(r.slug) + '"' + checked + ' aria-label="Compare ' + esc(r.name) + '"></td>' +
           '<td class="num">' + shown + "</td>" +
           '<td><span class="nm">' + esc(r.name) + '</span><span class="sub">' + esc(r.slug) + "</span></td>" +
           "<td>" + esc(r.category || "—") + "</td>" +
           '<td><span class="chains">' + chainsShort(r) + "</span></td>" +
           '<td class="num">' + esc(money(r.tvl_usd)) + "</td>" +
           changeCell(r.change_7d) +
-          '<td class="num">' + esc(r.age_days == null ? "—" : r.age_days + "d") + "</td>" +
+          '<td class="num"><span class="mom-cell"><span class="mom-track"><span class="mom-fill tier-' + tierOf(r) + '" style="display:block;width:' + mom + '%"></span></span>' + mom + "</span></td>" +
+          '<td class="num ' + flowCls + '">' + esc(flowMoney(flow)) + "</td>" +
           '<td class="num"><strong>' + esc(money(shownImplied(r))) + "</strong></td>" +
           "<td>" + signalHtml(r) + "</td></tr>";
       }).join("");
@@ -192,6 +250,74 @@
     Array.prototype.forEach.call(body.querySelectorAll("tr[data-slug]"), function (tr) {
       tr.addEventListener("click", function () { openDetail(tr.getAttribute("data-slug")); });
     });
+    Array.prototype.forEach.call(body.querySelectorAll("input.cmp"), function (box) {
+      box.addEventListener("click", function (ev) { ev.stopPropagation(); });
+      box.addEventListener("change", function () { toggleCompare(box.getAttribute("data-slug")); });
+    });
+  }
+
+  /* ---------- compare ---------- */
+  function compareRows() {
+    return compare.map(function (slug) {
+      var found = null;
+      ROWS.forEach(function (r) { if (r.slug === slug) found = r; });
+      return found;
+    }).filter(function (r) { return r !== null; });
+  }
+  function toggleCompare(slug) {
+    var at = compare.indexOf(slug);
+    if (at >= 0) {
+      compare.splice(at, 1);
+    } else {
+      if (compare.length >= 3) compare.shift();
+      compare.push(slug);
+    }
+    renderBoard();
+    renderCompare();
+  }
+  function compareTop3() {
+    compare = ROWS.slice().sort(function (a, b) { return shownImplied(b) - shownImplied(a); })
+      .slice(0, 3).map(function (r) { return r.slug; });
+    renderBoard();
+    renderCompare();
+  }
+  function renderCompare() {
+    var picked = compareRows();
+    $("compare-count").textContent = picked.length ? picked.length + " of 3 picked" : "none picked yet — top 3 by default";
+    if (!picked.length) {
+      $("compare-body").innerHTML = '<p class="fine">Tick rows on the board, or press “Compare top 3”.</p>';
+      return;
+    }
+    var metricRows = [
+      ["Rank", function (r) { return "#" + r.rank + " of " + ROWS.length; }],
+      ["Implied value", function (r) { return "<strong>" + esc(money(shownImplied(r))) + "</strong>"; }],
+      ["TVL", function (r) { return esc(moneyFull(r.tvl_usd)); }],
+      ["7-day change", function (r) { return esc(pct(r.change_7d)); }],
+      ["7-day flow", function (r) { return esc(flowMoney(r.flow_7d_usd || 0)); }],
+      ["Momentum", function (r) { return momentumOf(r) + " / 100 · " + tierOf(r); }],
+      ["Age with no token", function (r) { return r.age_days == null ? "—" : r.age_days + " days"; }],
+      ["Chains", function (r) {
+        var c = (r.chains || []).join(", ");
+        return c ? '<span class="cmp-left">' + esc(c) + "</span>" : "—";
+      }],
+      ["Category", function (r) { return esc(r.category || "—"); }],
+      ["Watchlist", function (r) { return r.watchlist ? "yes" : "early find"; }]
+    ];
+    var head = '<table class="compare"><thead><tr><th></th>' + picked.map(function (r) {
+      return "<th>" + esc(r.name) + '<span class="sub">' + esc(r.slug) + "</span></th>";
+    }).join("") + "</tr></thead><tbody>";
+    var body = metricRows.map(function (m) {
+      return "<tr><th>" + m[0] + "</th>" + picked.map(function (r) {
+        return '<td class="num">' + m[1](r) + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+    var steps = "<tr><th>Farm steps</th>" + picked.map(function (r) {
+      var s = r.farm_steps || [];
+      /* The first three steps fit the card; the rest live in the detail view. */
+      return "<td><ol class=\"farm cmp-farm\">" + s.slice(0, 3).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ol>" +
+        (s.length > 3 ? '<p class="fine">+ ' + (s.length - 3) + " more steps — open the detail view.</p>" : "") + "</td>";
+    }).join("") + "</tr>";
+    $("compare-body").innerHTML = head + body + steps + "</tbody></table>";
   }
 
   /* ---------- detail ---------- */
@@ -225,10 +351,13 @@
       '<dl class="kv">' +
       "<div><dt>TVL</dt><dd>" + esc(moneyFull(r.tvl_usd)) + "</dd></div>" +
       "<div><dt>7-day change</dt><dd>" + esc(pct(r.change_7d)) + "</dd></div>" +
+      "<div><dt>7-day flow</dt><dd>" + esc(flowMoney(r.flow_7d_usd || 0)) +
+      "<small>TVL gained or lost in 7 days</small></dd></div>" +
+      "<div><dt>Momentum</dt><dd>" + momentumOf(r) + " / 100<small>" + tierOf(r) + " tier</small></dd></div>" +
       "<div><dt>Age with no token</dt><dd>" + esc(r.age_days == null ? "—" : r.age_days + " days") +
       "<small>" + esc(r.listed_at ? "listed " + r.listed_at : "no listing date: 365 assumed") + "</small></dd></div>" +
       "<div><dt>Implied value</dt><dd>" + esc(moneyFull(shown)) +
-      "<small>" + (sandboxOn() ? "sandbox weights" : "radar-2 weights") + "</small></dd></div>" +
+      "<small>" + (sandboxOn() ? "sandbox weights" : "radar-3 weights") + "</small></dd></div>" +
       "</dl>" +
       '<p class="math">' + esc(math) + "</p>" +
       "<h4>How to farm it — six steps</h4>" +
@@ -261,7 +390,7 @@
       tag.textContent = "sandbox weights — board re-ranked";
       tag.classList.add("live");
     } else {
-      tag.textContent = "radar-2 defaults";
+      tag.textContent = "radar-3 defaults";
       tag.classList.remove("live");
     }
   }
@@ -303,6 +432,15 @@
     });
     $("pg-prev").addEventListener("click", function () { state.page -= 1; renderBoard(); });
     $("pg-next").addEventListener("click", function () { state.page += 1; renderBoard(); });
+    $("cmp-top3").addEventListener("click", function () {
+      compareTop3();
+      $("compare-card").scrollIntoView({ behavior: "auto", block: "start" });
+    });
+    $("cmp-clear").addEventListener("click", function () {
+      compare = [];
+      renderBoard();
+      renderCompare();
+    });
     ["w-base", "w-growth", "w-breadth"].forEach(function (id) {
       $(id).addEventListener("input", sandboxChanged);
     });
@@ -315,14 +453,40 @@
     });
   }
 
+  /* The compare view starts on the top 3 by implied value, so it is never empty. */
+  compareTop3();
   renderStats();
   buildFilters();
   renderSandbox();
   renderChart();
+  renderMovers();
   renderBoard();
+  renderCompare();
   renderLive();
   bind();
 
-  var m = window.location.hash.match(/^#detail=([\w-]+)$/);
+  /* Deep links: #detail=<slug> opens one protocol, #growing=1 filters to growers,
+     #compare=<slug>,<slug>,<slug> picks the comparison — and a compare link scrolls to it. */
+  var hash = window.location.hash.slice(1);
+  var params = {};
+  hash.split("&").forEach(function (part) {
+    var kv = part.split("=");
+    if (kv.length === 2) params[kv[0]] = decodeURIComponent(kv[1]);
+  });
+  if (params.compare) {
+    compare = params.compare.split(",").filter(function (slug) {
+      return ROWS.some(function (r) { return r.slug === slug; });
+    }).slice(0, 3);
+    renderBoard();
+    renderCompare();
+  }
+  if (params.growing) {
+    state.growing = true;
+    $("f-growing").checked = true;
+    state.page = 0;
+    renderBoard();
+  }
+  if (params.compare) $("compare-card").scrollIntoView({ behavior: "auto", block: "start" });
+  var m = hash.match(/(?:^|&)detail=([\w-]+)/);
   if (m) openDetail(m[1]);
 })();

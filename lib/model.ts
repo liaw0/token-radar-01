@@ -76,7 +76,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -111,6 +111,9 @@ export interface BoardRow {
     maturity_multiplier: number;
     breadth_multiplier: number;
     age_days: number | null;
+    flow_7d_usd: number;
+    growth_tier: GrowthTier;
+    momentum: number;
   };
   farm_steps: string[];
 }
@@ -131,6 +134,9 @@ export interface RadarRow {
   growth_multiplier: number;
   maturity_multiplier: number;
   breadth_multiplier: number;
+  flow_7d_usd: number;
+  growth_tier: GrowthTier;
+  momentum: number;
   watchlist: boolean;
 }
 
@@ -145,7 +151,7 @@ export interface LiveRow {
   change_7d: number | null;
 }
 
-/** Everything the dashboard needs: the board, the live set, and the model it runs. */
+/** Everything the dashboard needs: the board, the live set, the growth leaders, and the model it runs. */
 export interface RadarData {
   as_of: string;
   source: string;
@@ -156,6 +162,8 @@ export interface RadarData {
   board_size: number;
   early_size: number;
   live_size: number;
+  growth_leaders: GrowthLeader[];
+  trend: BoardTrend;
   rows: RadarRow[];
   live: LiveRow[];
 }
@@ -197,6 +205,62 @@ export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: Mo
   const base = protocol.tvl_usd * model.base_multiple;
   const implied = Math.max(1, Math.round(base * growthMult * maturityMult * breadthMult));
   return { implied, growthPct, growthMult, maturityMult, breadthMult, age };
+}
+
+/** The 7-day growth tier a protocol's TVL change puts it in. */
+export type GrowthTier = 'surging' | 'growing' | 'flat' | 'cooling' | 'falling';
+
+/** The tier from a 7-day change in per cent: surging at +20, growing at +5, flat within ±5, cooling to -10, falling below. */
+export function growthTier(change7d: number | null): GrowthTier {
+  if (change7d === null) return 'flat';
+  if (change7d >= 20) return 'surging';
+  if (change7d >= 5) return 'growing';
+  if (change7d > -5) return 'flat';
+  if (change7d > -10) return 'cooling';
+  return 'falling';
+}
+
+/** The TVL trend signals a protocol's own snapshot figures carry. */
+export interface GrowthSignals {
+  flow_7d_usd: number;
+  tier: GrowthTier;
+  momentum: number;
+}
+
+/**
+ * The trend signals, from the protocol's own tvl_usd and change_7d and nothing else: the
+ * dollars its TVL gained or lost over seven days, its growth tier, and a 0–100 momentum
+ * index from its clamped 7-day change (100 at +120%, 33 on a flat week, 0 at -60%).
+ */
+export function growthSignals(p: SnapshotProtocol, model: ModelConstants = MODEL): GrowthSignals {
+  const change = p.change_7d === null ? 0 : p.change_7d;
+  const flow7dUsd = Math.round((p.tvl_usd * change) / 100);
+  const clamped = Math.min(model.growth_cap, Math.max(model.growth_floor, change));
+  const momentum = Math.round(((clamped - model.growth_floor) / (model.growth_cap - model.growth_floor)) * 100);
+  return { flow_7d_usd: flow7dUsd, tier: growthTier(p.change_7d), momentum };
+}
+
+/** One fastest mover: a board row's growth signals, for the dashboard's movers strip. */
+export interface GrowthLeader {
+  rank: number;
+  slug: string;
+  name: string;
+  tvl_usd: number;
+  change_7d: number | null;
+  flow_7d_usd: number;
+  momentum: number;
+  implied_value_usd: number;
+}
+
+/** The board's growth shape: how many rows sit in each tier, the net 7-day dollar flow, and the median 7-day change. */
+export interface BoardTrend {
+  surging: number;
+  growing: number;
+  flat: number;
+  cooling: number;
+  falling: number;
+  total_flow_7d_usd: number;
+  median_change_7d: number | null;
 }
 
 /** DefiLlama's version-marker rule: a name ending in a release is a pool of another protocol. */
@@ -258,7 +322,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
 
   const scored = [...chosen.values()].map((p) => {
     const { implied, growthPct, growthMult, maturityMult, breadthMult, age } = impliedValue(p, snapshot.as_of, model);
-    return { p, implied, growthPct, growthMult, maturityMult, breadthMult, age };
+    return { p, implied, growthPct, growthMult, maturityMult, breadthMult, age, signals: growthSignals(p, model) };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
   return scored.map((s, i) => ({
@@ -283,6 +347,9 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
       maturity_multiplier: round4(s.maturityMult),
       breadth_multiplier: round4(s.breadthMult),
       age_days: s.age,
+      flow_7d_usd: s.signals.flow_7d_usd,
+      growth_tier: s.signals.tier,
+      momentum: s.signals.momentum,
     },
     farm_steps: farmSteps(s.p, s.age).map(stepText),
   }));
@@ -413,7 +480,50 @@ export function radarRow(row: BoardRow, watchlist: Set<string>): RadarRow {
     growth_multiplier: row.model.growth_multiplier,
     maturity_multiplier: row.model.maturity_multiplier,
     breadth_multiplier: row.model.breadth_multiplier,
+    flow_7d_usd: row.model.flow_7d_usd,
+    growth_tier: row.model.growth_tier,
+    momentum: row.model.momentum,
     watchlist: watchlist.has(row.slug),
+  };
+}
+
+/** The eight fastest movers: the board's highest-momentum rows, ties broken by 7-day dollar flow. */
+export function growthLeaders(board: BoardRow[]): GrowthLeader[] {
+  return [...board]
+    .sort((a, b) => b.model.momentum - a.model.momentum || b.model.flow_7d_usd - a.model.flow_7d_usd || a.rank - b.rank)
+    .slice(0, 8)
+    .map((r) => ({
+      rank: r.rank,
+      slug: r.slug,
+      name: r.name,
+      tvl_usd: r.tvl_usd,
+      change_7d: r.change_7d,
+      flow_7d_usd: r.model.flow_7d_usd,
+      momentum: r.model.momentum,
+      implied_value_usd: r.implied_value_usd,
+    }));
+}
+
+/** The board's growth shape, from its rows' own signals. */
+export function boardTrend(board: BoardRow[]): BoardTrend {
+  const counts: Record<GrowthTier, number> = { surging: 0, growing: 0, flat: 0, cooling: 0, falling: 0 };
+  let totalFlow = 0;
+  const changes: number[] = [];
+  for (const r of board) {
+    counts[r.model.growth_tier] += 1;
+    totalFlow += r.model.flow_7d_usd;
+    if (r.change_7d !== null) changes.push(r.change_7d);
+  }
+  changes.sort((a, b) => a - b);
+  const median = changes.length === 0 ? null : changes[Math.floor(changes.length / 2)]!;
+  return {
+    surging: counts.surging,
+    growing: counts.growing,
+    flat: counts.flat,
+    cooling: counts.cooling,
+    falling: counts.falling,
+    total_flow_7d_usd: totalFlow,
+    median_change_7d: median,
   };
 }
 
@@ -433,6 +543,8 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     board_size: board.length,
     early_size: early,
     live_size: live.length,
+    growth_leaders: growthLeaders(board),
+    trend: boardTrend(board),
     rows: board.map((r) => radarRow(r, watchlist)),
     live,
   };
